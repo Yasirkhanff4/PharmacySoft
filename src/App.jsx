@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { CloudProvider } from "./context/CloudContext";
 import { UIProvider } from "./context/UIContext";
 import AppLayout from "./components/AppLayout";
 import AuthScreen from "./pages/AuthScreen";
@@ -194,9 +195,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <UIProvider>
-        <AppRoutes />
-      </UIProvider>
+      <CloudProvider>
+        <UIProvider>
+          <AppRoutes />
+        </UIProvider>
+      </CloudProvider>
     </AuthProvider>
   );
 }

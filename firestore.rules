@@ -1,0 +1,158 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function memberPath(pharmacyId, uid) {
+      return /databases/$(database)/documents/pharmacies/$(pharmacyId)/members/$(uid);
+    }
+
+    function member(pharmacyId) {
+      return get(memberPath(pharmacyId, request.auth.uid)).data;
+    }
+
+    function isMember(pharmacyId) {
+      return isSignedIn()
+        && exists(memberPath(pharmacyId, request.auth.uid))
+        && member(pharmacyId).active == true
+        && member(pharmacyId).get("pharmacyId", pharmacyId) == pharmacyId;
+    }
+
+    function isAdmin(pharmacyId) {
+      return isMember(pharmacyId) && member(pharmacyId).role == "admin";
+    }
+
+    function enrollmentPath(pharmacyId, code) {
+      return /databases/$(database)/documents/pharmacies/$(pharmacyId)/enrollmentCodes/$(code);
+    }
+
+    // A member document may only be created by the device that claimed the
+    // matching one-time code, before that code expires.
+    function validEnrollment(pharmacyId, code) {
+      return code is string
+        && code.matches("^[A-Z0-9]{4}-[A-Z0-9]{4}$")
+        && exists(enrollmentPath(pharmacyId, code))
+        && get(enrollmentPath(pharmacyId, code)).data.pharmacyId == pharmacyId
+        && get(enrollmentPath(pharmacyId, code)).data.usedBy == request.auth.uid
+        && get(enrollmentPath(pharmacyId, code)).data.expiresAt > request.time;
+    }
+
+    match /pharmacies/{pharmacyId} {
+      // The workspace document is provisioned in the Firebase Console.
+      allow read: if isMember(pharmacyId);
+      allow write: if false;
+
+      match /members/{uid} {
+        // A device may check its own membership before it is authorized, but
+        // it can never read another device's member document directly.
+        allow get: if isSignedIn() && uid == request.auth.uid;
+        allow list: if isAdmin(pharmacyId);
+
+        // Self-enrollment is only possible with an unused one-time code issued
+        // by an administrator device. Enrolled devices always receive the
+        // staff role; they can never grant themselves admin.
+        allow create: if isSignedIn()
+          && uid == request.auth.uid
+          && request.resource.data.keys().hasOnly([
+            "uid",
+            "pharmacyId",
+            "active",
+            "role",
+            "enrollmentCode",
+            "enrolledAt"
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.pharmacyId == pharmacyId
+          && request.resource.data.active == true
+          && request.resource.data.role == "staff"
+          && request.resource.data.enrolledAt is timestamp
+          && validEnrollment(pharmacyId, request.resource.data.get("enrollmentCode", ""));
+
+        // Roles and activation are managed in the Firebase Console only.
+        allow update, delete: if false;
+      }
+
+      match /enrollmentCodes/{codeId} {
+        // Knowing the unguessable document ID (the code itself) is required to
+        // read or redeem a code. Codes can never be listed by staff devices.
+        allow get: if isSignedIn();
+        allow list: if isAdmin(pharmacyId);
+
+        allow create: if isAdmin(pharmacyId)
+          && codeId.matches("^[A-Z0-9]{4}-[A-Z0-9]{4}$")
+          && request.resource.data.keys().hasOnly([
+            "code",
+            "pharmacyId",
+            "createdBy",
+            "createdAt",
+            "expiresAt",
+            "usedBy",
+            "usedAt"
+          ])
+          && request.resource.data.code == codeId
+          && request.resource.data.pharmacyId == pharmacyId
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.usedBy == null
+          && request.resource.data.usedAt == null
+          && request.resource.data.expiresAt is timestamp
+          && request.resource.data.expiresAt > request.time
+          && request.resource.data.expiresAt < request.time + duration.value(30, "m");
+
+        // Redeeming a code is a single, atomic claim: only usedBy and usedAt
+        // may change, only from null to the caller's UID, and only before the
+        // expiration time. Once claimed, no other device can reuse it.
+        allow update: if isSignedIn()
+          && resource.data.pharmacyId == pharmacyId
+          && resource.data.usedBy == null
+          && request.resource.data.usedBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            "usedBy",
+            "usedAt"
+          ])
+          && request.time < resource.data.expiresAt;
+
+        allow delete: if false;
+      }
+
+      match /medicines/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /sales/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /purchases/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /suppliers/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /customers/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /expenses/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      match /settings/{recordId} {
+        allow read, write: if isMember(pharmacyId);
+      }
+
+      // Invoice numbers are write-once. A second device cannot claim an
+      // invoice number that is already reserved by another sale or purchase.
+      match /invoiceKeys/{recordId} {
+        allow read: if isMember(pharmacyId);
+        allow create: if isMember(pharmacyId);
+        allow update, delete: if false;
+      }
+    }
+  }
+}

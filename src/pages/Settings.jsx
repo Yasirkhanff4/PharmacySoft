@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  AlertTriangle,
   BadgeCheck,
+  Cloud,
+  Copy,
   Database,
   Download,
   HardDrive,
@@ -9,6 +12,7 @@ import {
   LockKeyhole,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   ShieldCheck,
   Store,
@@ -16,9 +20,13 @@ import {
   Upload,
   UserCog,
   Users,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { db } from "../database/db";
 import { useAuth } from "../context/AuthContext";
+import { useCloud } from "../context/CloudContext";
+import DeviceManagement from "../components/settings/DeviceManagement";
 import {
   useSettings,
   saveSettings as persistSettings,
@@ -62,10 +70,357 @@ const TABS = [
   { id: "security", label: "My Account", icon: LockKeyhole, permission: "settings.view" },
   { id: "users", label: "Users & Roles", icon: Users, permission: "users.manage" },
   { id: "data", label: "Data Protection", icon: Database, permission: "backup.manage" },
+  { id: "firebase", label: "Firebase", icon: Cloud, permission: "settings.view" },
   { id: "about", label: "About", icon: ShieldCheck, permission: "settings.view" },
 ];
 
 const EMPTY_USER = { name: "", username: "", password: "", confirm: "", role: "cashier", active: true };
+
+function FirebasePanel({ onManageDevices }) {
+  const {
+    configured,
+    projectId,
+    workspaceId,
+    cloudUser,
+    deviceId,
+    localUserActive,
+    connecting,
+    authLoading,
+    authError,
+    membership,
+    online,
+    retryAuthentication,
+    refreshMembership,
+    redeemEnrollmentCode,
+    sync,
+    syncNow,
+  } = useCloud();
+  const { user: localUser } = useAuth();
+  const { toast } = useUI();
+  const canManageDevices =
+    membership.role === "admin" && localUser?.role === "admin";
+  const [syncingNow, setSyncingNow] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [enrollError, setEnrollError] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
+
+  const authorized = membership.status === "authorized";
+  const canSync = configured && authorized && online && !sync.syncing;
+
+  const authenticationLabel = !configured
+    ? "Not configured"
+    : connecting || authLoading
+      ? "Connecting…"
+      : cloudUser
+        ? "Authenticated (anonymous device)"
+        : authError
+          ? "Failed"
+          : localUserActive
+            ? "Not connected"
+            : "Waiting for local login";
+
+  const authorizationLabel = !configured
+    ? "—"
+    : authorized
+      ? `Authorized (${membership.role})`
+      : !cloudUser
+        ? "Waiting for authentication"
+        : membership.status === "error"
+          ? "Verification failed"
+          : "Not authorized";
+
+  async function copyText(value, label) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied.`, "Copied");
+    } catch {
+      toast.error("Could not copy to the clipboard.", "Copy failed");
+    }
+  }
+
+  async function handleEnroll(event) {
+    event.preventDefault();
+    setEnrollError("");
+
+    if (!codeInput.trim()) {
+      setEnrollError("Enter the enrollment code given by the administrator.");
+      return;
+    }
+
+    setEnrolling(true);
+
+    try {
+      await redeemEnrollmentCode(codeInput);
+      setCodeInput("");
+      toast.success("This device is now enrolled in the pharmacy workspace.", "Device authorized");
+    } catch (error) {
+      setEnrollError(error.message || "Could not authorize this device.");
+    } finally {
+      setEnrolling(false);
+    }
+  }
+
+  async function handleSyncNow() {
+    setSyncingNow(true);
+
+    try {
+      await syncNow({ manual: true });
+      toast.success("Synchronization finished. Check the status above for details.", "Sync requested");
+    } catch (error) {
+      toast.error(error.message || "Could not synchronize with Firebase.", "Sync failed");
+    } finally {
+      setSyncingNow(false);
+    }
+  }
+
+  return (
+    <div className="settings-stack">
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <h2>Firebase Cloud</h2>
+            <p>Automatic device authentication and synchronization status.</p>
+          </div>
+          <div className="badge-stack">
+            <Badge tone={configured ? "blue" : "neutral"} dot>
+              {configured ? "Configured" : "Not configured"}
+            </Badge>
+            <Badge tone={online ? "green" : "amber"} dot>
+              {online ? "Online" : "Offline"}
+            </Badge>
+          </div>
+        </div>
+
+        {!configured && (
+          <div className="form-alert form-alert-warning">
+            Firebase is not configured. Add the six VITE_FIREBASE_* values to .env.local,
+            restart the dev server, and reload this page.
+          </div>
+        )}
+
+        <div className="detail-grid">
+          <div>
+            <span>Firebase project</span>
+            <strong>{projectId || "Not configured"}</strong>
+          </div>
+          <div>
+            <span>Workspace</span>
+            <strong>{workspaceId || "main"}</strong>
+          </div>
+          <div>
+            <span>Automatic authentication</span>
+            <strong>{authenticationLabel}</strong>
+          </div>
+          <div>
+            <span>Device authorization</span>
+            <strong className={authorized ? "" : "text-danger"}>{authorizationLabel}</strong>
+          </div>
+          <div>
+            <span>Automatic synchronization</span>
+            <strong>{authorized && online ? "Active" : "Paused"}</strong>
+          </div>
+          <div>
+            <span>Network status</span>
+            <strong className="sync-inline-status">
+              {online ? <Wifi size={15} /> : <WifiOff size={15} />}
+              {online ? "Online" : "Offline — data stays on this device"}
+            </strong>
+          </div>
+          <div>
+            <span>Pending changes</span>
+            <strong>{formatInteger(sync.pendingCount)}</strong>
+          </div>
+          <div>
+            <span>Failed changes</span>
+            <strong>{formatInteger(sync.failedCount)}</strong>
+          </div>
+          <div>
+            <span>Last successful sync</span>
+            <strong>{toDisplayDateTime(sync.lastSyncedAt)}</strong>
+          </div>
+          <div>
+            <span>Device ID</span>
+            <strong className="sync-uid">{deviceId || "Not assigned yet"}</strong>
+          </div>
+        </div>
+
+        <div className="data-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleSyncNow}
+            disabled={!canSync || syncingNow}
+          >
+            <RefreshCw size={16} />
+            {sync.syncing || syncingNow ? "Syncing…" : "Sync Now"}
+          </button>
+          <p className="data-note">
+            Local saves always continue. Pending changes upload automatically after local login
+            succeeds, Firebase authentication completes, and this device is authorized.
+          </p>
+        </div>
+
+        {sync.lastError && (
+          <div className="form-alert form-alert-error">
+            <AlertTriangle size={16} />
+            {sync.lastError}
+          </div>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <h2>Device Authorization</h2>
+            <p>
+              Anonymous Firebase authentication identifies this device. Pharmacy data is only
+              available to devices enrolled in this workspace.
+            </p>
+          </div>
+          <ShieldCheck size={18} />
+        </div>
+
+        {configured && !localUserActive && (
+          <div className="form-alert form-alert-warning">
+            Sign in with your local PharmaCare account. Firebase authentication starts
+            automatically after the local login succeeds.
+          </div>
+        )}
+
+        {configured && localUserActive && (connecting || authLoading) && !authError && (
+          <p className="data-note">Authenticating this device with Firebase…</p>
+        )}
+
+        {configured && authError && (
+          <>
+            <div className="form-alert form-alert-error">
+              <AlertTriangle size={16} />
+              {authError}
+            </div>
+            <div className="data-actions">
+              <button type="button" className="btn btn-secondary" onClick={retryAuthentication}>
+                <RefreshCw size={16} />
+                Retry Authentication
+              </button>
+            </div>
+          </>
+        )}
+
+        {configured && authorized && (
+          <>
+            <div className="detail-grid">
+              <div>
+                <span>Authorization</span>
+                <strong>Authorized for {workspaceId}</strong>
+              </div>
+              <div>
+                <span>Workspace role</span>
+                <strong>{membership.role}</strong>
+              </div>
+            </div>
+
+            <div className="data-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => copyText(deviceId, "Device ID")}
+              >
+                <Copy size={16} />
+                Copy Device ID
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={refreshMembership}>
+                <RefreshCw size={16} />
+                Check Authorization
+              </button>
+            </div>
+
+            {canManageDevices && (
+              <div className="data-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => onManageDevices?.()}
+                >
+                  <KeyRound size={16} />
+                  Open Device Management
+                </button>
+                <p className="data-note">
+                  Generate one-time enrollment codes and review enrolled devices under
+                  Settings → Users &amp; Roles → Device Management.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        {configured && cloudUser && !authorized && membership.status !== "error" && (
+          <>
+            <div className="form-alert form-alert-warning">
+              This device is authenticated but not enrolled.
+              {membership.reason ? ` ${membership.reason}` : ""} Enter a one-time enrollment
+              code from an administrator device, or ask the administrator to add the device ID
+              shown above in Firebase Console.
+            </div>
+
+            <form onSubmit={handleEnroll} className="form-grid">
+              <Field label="Enrollment Code" required>
+                <input
+                  type="text"
+                  value={codeInput}
+                  onChange={(event) => setCodeInput(event.target.value.toUpperCase())}
+                  placeholder="XXXX-XXXX"
+                  autoComplete="one-time-code"
+                  spellCheck="false"
+                />
+              </Field>
+
+              <div className="field-span-2">
+                <button type="submit" className="btn btn-primary" disabled={enrolling}>
+                  <ShieldCheck size={16} />
+                  {enrolling ? "Authorizing…" : "Authorize This Device"}
+                </button>
+              </div>
+
+              {enrollError && (
+                <div className="form-alert form-alert-error field-span-2">{enrollError}</div>
+              )}
+            </form>
+
+            <div className="data-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => copyText(deviceId, "Device ID")}
+              >
+                <Copy size={16} />
+                Copy Device ID
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={refreshMembership}>
+                <RefreshCw size={16} />
+                Check Authorization
+              </button>
+            </div>
+          </>
+        )}
+
+        {configured && membership.status === "error" && (
+          <>
+            <div className="form-alert form-alert-error">
+              <AlertTriangle size={16} />
+              {membership.error || "Could not verify device authorization."}
+            </div>
+            <div className="data-actions">
+              <button type="button" className="btn btn-secondary" onClick={refreshMembership}>
+                <RefreshCw size={16} />
+                Check Authorization
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export default function Settings() {
   const currentSettings = useSettings();
@@ -824,6 +1179,8 @@ export default function Settings() {
                 )}
               </section>
 
+              <DeviceManagement />
+
               <section className="card">
                 <div className="card-head">
                   <div>
@@ -994,6 +1351,10 @@ export default function Settings() {
                 </p>
               </section>
             </div>
+          )}
+
+          {activeTab === "firebase" && (
+            <FirebasePanel onManageDevices={() => setTab("users")} />
           )}
 
           {activeTab === "about" && (

@@ -1401,6 +1401,17 @@ input[type="file"][hidden] {
   word-break: break-word;
 }
 
+.sync-inline-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-uid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px !important;
+}
+
 .text-danger { color: var(--red) !important; }
 .text-success { color: var(--green) !important; }
 .text-amber { color: var(--amber) !important; }

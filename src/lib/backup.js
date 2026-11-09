@@ -1,7 +1,11 @@
 import { db } from "../database/db";
+import { isFirebaseConfigured } from "../firebase/firebase";
+import { queueAfterRestore } from "../sync/queue";
 import { APP_NAME, APP_VERSION, BACKUP_META_KEY } from "./constants";
 import { loadLogo, loadSettings, saveLogo, saveSettings } from "../hooks/useSettings";
 import { downloadJSON, toLocalDateString } from "./format";
+
+const BACKUP_EXCLUDED_TABLES = new Set(["syncQueue"]);
 
 export function buildBackupPayload() {
   return (async () => {
@@ -9,6 +13,8 @@ export function buildBackupPayload() {
     const counts = {};
 
     for (const table of db.tables) {
+      if (BACKUP_EXCLUDED_TABLES.has(table.name)) continue;
+
       const records = await table.toArray();
       data[table.name] = records;
       counts[table.name] = records.length;
@@ -48,7 +54,11 @@ export function validateBackup(payload) {
     throw new Error("The backup file is missing its database section.");
   }
 
-  const knownTables = new Set(db.tables.map((table) => table.name));
+  const knownTables = new Set(
+    db.tables
+      .filter((table) => !BACKUP_EXCLUDED_TABLES.has(table.name))
+      .map((table) => table.name)
+  );
   const tables = Object.keys(payload.data);
   const validTables = tables.filter((name) => knownTables.has(name));
 
@@ -80,6 +90,13 @@ export async function restoreBackup(payload, mode = "replace") {
   const summary = validateBackup(payload);
   const tableNames = summary.tables;
   const dexieTables = db.tables.filter((table) => tableNames.includes(table.name));
+  const previousIds = {};
+
+  if (mode === "replace") {
+    for (const table of dexieTables) {
+      previousIds[table.name] = (await table.toArray()).map((record) => record.id);
+    }
+  }
 
   await db.transaction("rw", ...dexieTables, async () => {
     for (const table of dexieTables) {
@@ -105,6 +122,10 @@ export async function restoreBackup(payload, mode = "replace") {
 
   if (typeof payload.logo === "string") {
     saveLogo(payload.logo);
+  }
+
+  if (isFirebaseConfigured) {
+    await queueAfterRestore(mode === "replace" ? previousIds : null);
   }
 
   return summary;
