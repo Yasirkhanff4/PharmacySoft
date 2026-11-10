@@ -9,8 +9,9 @@ Temporary test records were used. They were removed/reset after verification. No
 | Check | Command | Result |
 | --- | --- | --- |
 | Lint | `npm.cmd run lint` | Passed, 0 errors / 0 warnings |
-| Production build | `npm.cmd run build` | Passed (Vite 8.3.5, 2084 modules, `dist/` generated) |
-| Bundle | build output | JS 580.72 kB (167.37 kB gzip), CSS 49.41 kB (10.15 kB gzip); chunk-size warning only |
+| Unit tests | `npm.cmd run test` | 44/44 passed (Google OAuth backend + runtime config) |
+| Production build | `npm.cmd run build` | Passed (Vite 8, 2118 modules, `dist/` generated) |
+| Bundle | build output | JS 1,231.91 kB (359.46 kB gzip), CSS 56.66 kB (11.30 kB gzip); chunk-size warning only |
 | Browser console | all ten routes | 0 error-level messages |
 
 ## Functional tests
@@ -107,6 +108,26 @@ Temporary test records were used. They were removed/reset after verification. No
 | Restore replace | Data restored, app reloads, counts preserved | Passed |
 | Invalid backup | Rejected before writing with “missing its database section” | Passed |
 
+### Cloud synchronization, device enrollment and Connect with Google
+
+Backend unit tests cover session sealing, PKCE/state, cancellation, origin checks, method and configuration failures, plus the runtime configuration store and project-switch guard.
+
+| Test | Expected | Result |
+| --- | --- | --- |
+| Session cookie sealing | Round-trips, rejects tampering, never contains the refresh token or email in clear text | Passed (unit) |
+| Authorization start | Redirect to Google with state, PKCE S256, offline access, sealed state cookie; no client secret in the URL | Passed (live HTTP) |
+| Unconfigured backend | `503 server_not_configured` without leaking secrets | Passed (unit + live HTTP) |
+| Missing device identity | `401 missing_device_token` | Passed (unit + live HTTP) |
+| Foreign origin | `403 origin_not_allowed` | Passed (unit + live HTTP) |
+| Cancelled consent | Redirect back with `reason=cancelled`, session untouched | Passed (unit) |
+| Expired/invalid state | State cookie cleared, safe error redirect | Passed (unit) |
+| Revoked Google grant | Card shows the reconnect banner with the account email; local data and sync untouched | Passed (browser, hand-sealed cookie) |
+| Admin gate | Device token verified against JWKS, member document read with the same token | Passed (live HTTP) |
+| Runtime configuration | Complete config round-trips; incomplete/corrupt values refused; project switch blocked with pending changes | Passed (unit) |
+| Device enrollment | Code issue/redeem, 8-character format, 15-minute expiry, single use | Passed (rules tests, 29/29) |
+| Authorized/unauthorized Firestore access | Authorized devices sync; unenrolled devices are denied | Passed (rules tests) |
+| Full Google consent, project list and Web config | Real OAuth client, consent screen and Management API | **Not executed** — requires a real OAuth client and test user |
+
 ### Responsive layout
 
 Probed with same-origin iframes at exact widths:
@@ -121,7 +142,7 @@ At 800 px, all ten routes had no horizontal overflow, and the off-canvas drawer 
 
 ## Not executed / limitations of this test run
 
-- No automated unit/integration test suite exists; verification was manual end-to-end browser testing plus lint/build.
+- The full Google consent, project listing and Web App configuration flow was not executed; it requires a real OAuth Web client, a consent screen and enabled Google APIs. All error paths and the backend logic are unit-tested.
 - Native print output was not physically printed; the print window opened and the browser print dialog appeared. PDF/paper output depends on the browser print settings.
 - Multi-tab concurrent checkout conflict testing was not performed beyond the synchronous double-click guard and transaction-level checks.
 - Very large datasets (tens of thousands of records) were not benchmarked.
@@ -132,8 +153,10 @@ At 800 px, all ten routes had no horizontal overflow, and the off-canvas drawer 
 
 ```powershell
 npm.cmd run lint
+npm.cmd run test
 npm.cmd run build
 npm.cmd run dev
+npm.cmd run dev:api
 ```
 
 Then follow the scenarios in `docs/USER_GUIDE.md` using temporary records. Export a backup before testing destructive actions.

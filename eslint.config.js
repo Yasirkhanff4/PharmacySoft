@@ -8,6 +8,7 @@ export default defineConfig([
   globalIgnores(['dist']),
   {
     files: ['**/*.{js,jsx}'],
+    ignores: ['api/**', 'scripts/**', 'tests/**'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -16,6 +17,23 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+  },
+  {
+    // Server-side code (OAuth backend, dev API server, tests) runs on Node.
+    files: ['api/**/*.js', 'scripts/**/*.mjs', 'tests/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: globals.node,
+      sourceType: 'module',
+      ecmaVersion: 'latest',
+    },
+  },
+  {
+    // The runtime-config test simulates a browser by assigning globalThis.window.
+    files: ['tests/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node, window: 'writable' },
     },
   },
   {

@@ -4002,3 +4002,116 @@ input[type="file"][hidden] {
     content: "";
   }
 }
+
+/* --------------------------------------------------------------------------
+   Settings · Connect with Google
+   -------------------------------------------------------------------------- */
+
+.google-divider {
+  height: 1px;
+  border: 0;
+  margin: 18px 0 4px;
+  background: var(--line);
+}
+
+.google-project-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.google-project-refresh {
+  height: 38px;
+  white-space: nowrap;
+}
+
+.google-checks {
+  margin-top: 16px;
+}
+
+.check-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.check-item > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.check-item strong {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.check-item span {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.check-ok { color: var(--green); flex-shrink: 0; margin-top: 1px; }
+.check-warn { color: var(--amber); flex-shrink: 0; margin-top: 1px; }
+.check-error { color: var(--red); flex-shrink: 0; margin-top: 1px; }
+.check-muted { color: var(--muted-light); flex-shrink: 0; margin-top: 1px; }
+
+.check-item.check-ok { border-color: #c6f0de; background: var(--green-soft); }
+.check-item.check-warn { border-color: #f3ddb0; background: var(--amber-soft); }
+.check-item.check-error { border-color: #f6c9cf; background: var(--red-soft); }
+
+.google-identity {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line);
+}
+
+.google-security-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--ink-soft);
+}
+
+.google-security-note > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.google-security-note p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .google-project-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .google-project-refresh {
+    height: auto;
+  }
+}

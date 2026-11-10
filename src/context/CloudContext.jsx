@@ -20,9 +20,11 @@ import {
 import {
   auth,
   authPersistenceReady,
+  configSource,
   firebaseProjectId,
   firestore,
   isFirebaseConfigured,
+  runtimeConfigMeta,
   usingFirebaseEmulator,
   WORKSPACE_ID,
 } from "../firebase/firebase";
@@ -719,6 +721,8 @@ export function CloudProvider({ children }) {
   const value = useMemo(
     () => ({
       configured: isFirebaseConfigured,
+      configSource,
+      runtimeConfig: runtimeConfigMeta,
       projectId: firebaseProjectId,
       workspaceId: WORKSPACE_ID,
       cloudUser,

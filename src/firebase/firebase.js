@@ -6,6 +6,7 @@ import {
   setPersistence,
 } from "firebase/auth";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+import { readRuntimeConfig } from "./runtimeConfig.js";
 
 const env = import.meta.env;
 
@@ -13,7 +14,7 @@ function readEnv(name) {
   return String(env[name] || "").trim();
 }
 
-export const firebaseConfig = {
+const envConfig = {
   apiKey: readEnv("VITE_FIREBASE_API_KEY"),
   authDomain: readEnv("VITE_FIREBASE_AUTH_DOMAIN"),
   projectId: readEnv("VITE_FIREBASE_PROJECT_ID"),
@@ -22,21 +23,34 @@ export const firebaseConfig = {
   appId: readEnv("VITE_FIREBASE_APP_ID"),
 };
 
-const requiredValues = [
-  firebaseConfig.apiKey,
-  firebaseConfig.authDomain,
-  firebaseConfig.projectId,
-  firebaseConfig.storageBucket,
-  firebaseConfig.messagingSenderId,
-  firebaseConfig.appId,
-];
+function isComplete(config) {
+  return [
+    config.apiKey,
+    config.authDomain,
+    config.projectId,
+    config.storageBucket,
+    config.messagingSenderId,
+    config.appId,
+  ].every(Boolean);
+}
 
-export const isFirebaseConfigured = requiredValues.every(Boolean);
+// A runtime configuration saved by "Connect with Google" wins over the build
+// time env vars, so an administrator can point the app at another project
+// without rebuilding or editing .env.local.
+const runtime = readRuntimeConfig();
+
+export const runtimeConfigMeta = runtime;
+
+export const configSource = runtime ? "runtime" : isComplete(envConfig) ? "env" : "none";
+
+export const firebaseConfig = runtime ? runtime.config : envConfig;
+
+export const isFirebaseConfigured = isComplete(firebaseConfig);
 
 export const firebaseProjectId = firebaseConfig.projectId;
 
 export const WORKSPACE_ID =
-  readEnv("VITE_FIREBASE_PHARMACY_ID") || "main";
+  runtime?.workspaceId || readEnv("VITE_FIREBASE_PHARMACY_ID") || "main";
 
 export const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
 

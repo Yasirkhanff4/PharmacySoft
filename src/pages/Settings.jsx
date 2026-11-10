@@ -27,6 +27,7 @@ import { db } from "../database/db";
 import { useAuth } from "../context/AuthContext";
 import { useCloud } from "../context/CloudContext";
 import DeviceManagement from "../components/settings/DeviceManagement";
+import GoogleCloudCard from "../components/settings/GoogleCloudCard";
 import {
   useSettings,
   saveSettings as persistSettings,
@@ -63,6 +64,7 @@ import {
   normalizeText,
   toDisplayDateTime,
 } from "../lib/format";
+import { storeGoogleOAuthResult } from "../lib/googleCloudApi";
 
 const TABS = [
   { id: "general", label: "Pharmacy Profile", icon: Store, permission: "settings.view" },
@@ -79,6 +81,7 @@ const EMPTY_USER = { name: "", username: "", password: "", confirm: "", role: "c
 function FirebasePanel({ onManageDevices }) {
   const {
     configured,
+    configSource,
     projectId,
     workspaceId,
     cloudUser,
@@ -188,13 +191,14 @@ function FirebasePanel({ onManageDevices }) {
             <Badge tone={online ? "green" : "amber"} dot>
               {online ? "Online" : "Offline"}
             </Badge>
+            {configSource === "runtime" && <Badge tone="indigo">Runtime config</Badge>}
           </div>
         </div>
 
         {!configured && (
           <div className="form-alert form-alert-warning">
-            Firebase is not configured. Add the six VITE_FIREBASE_* values to .env.local,
-            restart the dev server, and reload this page.
+            Firebase is not configured. Add the six public VITE_FIREBASE_* values once (see
+            .env.example) or connect a project with Google below, then reload this page.
           </div>
         )}
 
@@ -267,6 +271,8 @@ function FirebasePanel({ onManageDevices }) {
           </div>
         )}
       </section>
+
+      <GoogleCloudCard />
 
       <section className="card">
         <div className="card-head">
@@ -440,7 +446,10 @@ export default function Settings() {
 
   const [tab, setTab] = useState(() => {
     const requested = location.state?.tab;
-    return TABS.some((entry) => entry.id === requested) ? requested : "general";
+    if (TABS.some((entry) => entry.id === requested)) return requested;
+    // Returning from a full-page Google redirect lands on the Firebase tab.
+    if (new URLSearchParams(location.search).has("google")) return "firebase";
+    return "general";
   });
   const [formDraft, setFormDraft] = useState(null);
   const form = formDraft ?? { ...DEFAULT_SETTINGS, ...currentSettings };
@@ -476,6 +485,35 @@ export default function Settings() {
   const activeTab = tabs.some((entry) => entry.id === tab)
     ? tab
     : tabs[0]?.id || "general";
+
+  // The Google callback returns to /settings?google=... in this SPA. A popup
+  // notifies its opener and closes; a full-page redirect stashes the outcome
+  // and opens the Firebase tab so the card can show the result.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("google")) return;
+
+    const payload = {
+      type: "pharmacy-google-oauth",
+      status: params.get("google") === "connected" ? "connected" : "error",
+      intent: params.get("intent") || "read",
+      reason: params.get("reason") || "",
+      message: params.get("message") || "",
+    };
+
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.postMessage(payload, window.location.origin);
+      } catch {
+        // The opener will refresh its own state when it regains focus.
+      }
+      window.setTimeout(() => window.close(), 60);
+      return;
+    }
+
+    storeGoogleOAuthResult(payload);
+    window.history.replaceState({}, "", location.pathname);
+  }, [location.search, location.pathname]);
 
   useEffect(() => {
     let active = true;

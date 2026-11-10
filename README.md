@@ -17,7 +17,7 @@ The application is an upgrade of the existing `PharmacySoft` project. The databa
 | Customers | Directory, phone-number uniqueness, order/spend history, CRUD, CSV export, automatic creation from POS. |
 | Expenses | Operating costs by category, date and payment method, monthly/today totals, CRUD, CSV export. |
 | Reports | Date presets/range, day/week/month/year grouping, revenue, COGS, gross/net profit, purchase spending, expenses, top sellers, supplier summary, inventory snapshot, low/out/expired/expiring lists, category chart, CSV export and print. |
-| Settings | Pharmacy name/contact/address/currency, logo, invoice prefix/footer, low-stock and expiry thresholds, account password change, local users and roles, JSON backup/restore, storage usage and security notes. |
+| Settings | Pharmacy name/contact/address/currency, logo, invoice prefix/footer, low-stock and expiry thresholds, account password change, local users and roles, device enrollment, JSON backup/restore, storage usage and security notes. |
 
 ## Technology
 
@@ -28,7 +28,7 @@ The application is an upgrade of the existing `PharmacySoft` project. The databa
 - Plain CSS design system in `src/App.css`
 - Browser WebCrypto PBKDF2-SHA256 with a pure-JS fallback for non-secure contexts
 
-Firebase is listed in `package.json` but is **not configured or used** by PharmaCare. The app is fully local and does not require a network connection after assets are loaded.
+Firebase Authentication and Cloud Firestore are used for optional multi-device synchronization. An administrator can also load a project's public Web configuration at runtime through **Settings → Firebase Cloud → Connect with Google**, without rebuilding the app. The app still works fully offline and locally when Firebase is not configured. See [Deployment](docs/DEPLOYMENT.md) for the server setup.
 
 ## Getting started
 
@@ -36,8 +36,10 @@ Requirements: Node.js 20+ and npm.
 
 ```powershell
 npm install
-npm run dev       # http://localhost:5173
+npm run dev       # http://127.0.0.1:5173
+npm run dev:api   # OAuth backend on http://127.0.0.1:8787 (second terminal)
 npm run lint      # ESLint
+npm run test      # unit tests
 npm run build     # production build in dist/
 npm run preview   # serve the production build
 ```
@@ -75,10 +77,24 @@ Role checks control navigation, page access and action buttons. They are applica
 | Pharmacy settings and logo | `localStorage` (`pharmacySettings`, `pharmacyLogo`) |
 | Staff accounts, password hashes and session | `localStorage` / `sessionStorage` (`pharmacyUsers`, `pharmacySession`, `pharmacyAuthLock`) |
 | Last backup metadata | `localStorage` (`pharmacyLastBackup`) |
+| Runtime Firebase Web configuration | `localStorage` (`pharmacyFirebaseRuntimeConfig:v1`) — public values only |
 
 Data belongs to the browser profile and origin used to open the app. It persists across reloads, restarts and normal browser closure. It is **not** shared between browsers, devices or origins (for example `localhost:5173` and `localhost:4173` have separate databases).
 
 Clearing browser site data, using private/incognito mode, changing origin/port, or selecting “clear cookies and site data” will remove the database. Keep exported backups.
+
+## Cloud synchronization and Connect with Google
+
+When Firebase is configured, each device signs in anonymously and is authorized through a member document in `pharmacies/{workspaceId}/members`. Local writes stay in IndexedDB and flow through an outbox; **Sync Now** and automatic sync upload pending changes. Firestore rules decide what an authorized device may read or write.
+
+Administrators can open **Settings → Firebase Cloud → Connect with Google** to:
+
+- authorize a Google account (read-only Firebase access),
+- list the Firebase projects that account can see,
+- check the project's Web App, Firestore database and published rules,
+- store the project's public Web configuration locally and reload.
+
+The Google client secret and refresh token stay on the server, sealed in an encrypted `HttpOnly` cookie. Only public Web App values are stored in the browser. Disconnecting revokes the Google grant and leaves local data, the outbox and device authorization untouched. Switching projects requires explicit confirmation and is blocked while local changes are pending. See [Deployment](docs/DEPLOYMENT.md) for the OAuth setup and [Security notes](docs/SECURITY.md) for the threat model.
 
 ## Backups and restore
 
@@ -119,19 +135,25 @@ Sales receipts, purchase invoices and reports open a print-ready window and then
 src/
   App.jsx                 routes, providers, permission guards
   App.css                 design system, responsive and print styles
-  components/             layout, sidebar, invoice view, UI primitives
-  context/                local auth/session and dialogs/toasts
+  components/             layout, sidebar, invoice view, UI primitives, settings cards
+  context/                local auth/session, cloud state, dialogs/toasts
   database/db.js          Dexie schema versions 1–6
+  firebase/               Firebase init, runtime Web configuration
   hooks/useSettings.js    persisted settings and logo
-  lib/                    constants, crypto, formatting, backup, printing
+  lib/                    constants, crypto, formatting, backup, printing, Google API client
   pages/                  Dashboard, POS, inventory, people, finance, settings
+  sync/                   outbox upload and sync status
+api/                      Vercel Functions: Google OAuth and Firebase Management API
+scripts/dev-api.mjs       local API server used by the Vite `/api` proxy
+tests/                    node:test unit tests for the backend and runtime config
 ```
 
 ## Known limitations
 
-- Local-only, single-browser application: there is no server, multi-device sync or conflict resolution.
+- Local-first by default: without Firebase configuration there is no server, multi-device sync or conflict resolution. With Firebase enabled, devices sync through Firestore and the outbox; the last write to a record wins.
 - Application login is a local lock, not encryption. Someone with access to the browser profile or developer tools can read IndexedDB.
 - Invoice uniqueness is enforced per local database; it is not a central sequence shared by multiple devices.
 - Deleting a medicine does not rewrite historical invoices; those invoices keep their stored name/batch/price snapshots.
 - Restoring a backup made by a much newer schema is not supported; the app validates known tables and record shapes but does not migrate future schemas.
-- The production bundle is a single JavaScript chunk (~581 kB, ~167 kB gzip). Splitting by route is possible if bundle size becomes important.
+- The first administrator of a brand-new Firebase project must be created once in Firebase Console (see [Deployment](docs/DEPLOYMENT.md)); later devices use enrollment codes.
+- The production bundle is a single JavaScript chunk (~1.23 MB, ~360 kB gzip), mostly the Firebase SDK. Route-level splitting is possible if bundle size becomes important.
